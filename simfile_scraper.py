@@ -14,6 +14,13 @@ BASE_SIMFILES_DIR = 'simfiles/'
 SIMFILES_DIR = BASE_SIMFILES_DIR + 'DDR WORLD/'
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
+def get_simfile_name(soup):
+    top_nav = soup.find('div', id='top-nav')
+    if top_nav:
+        links = top_nav.find_all('a')
+        if links:
+            return links[-1].text.strip()
+    raise Exception("Couldn't find simfile name in the page.")
 
 def get_last_updated(soup):
     import re
@@ -58,32 +65,37 @@ def main():
         soup = BeautifulSoup(html, 'html.parser')
         last_updated_dt = get_last_updated(soup)
         zip_link = get_zip_link(soup)
+        simfile_name = get_simfile_name(soup)
+        # Extract simfileid from URL
+        import re
+        simfileid_match = re.search(r'simfileid=(\d+)', URL)
+        simfileid = simfileid_match.group(1) if simfileid_match else 'unknown'
     except Exception as e:
         logging.error(f"Error scraping page: {e}")
         return
 
-    sm_file = find_sm_file(SIMFILES_DIR, 'ARACHNE')
+    sm_file = find_sm_file(SIMFILES_DIR, simfile_name)
     if sm_file:
         local_mtime = datetime.fromtimestamp(os.path.getmtime(sm_file))
-        logging.info(f"Local SM file last modified: {local_mtime}")
-        logging.info(f"Remote SM file last updated: {last_updated_dt}")
+        logging.info(f"[{simfileid} - {simfile_name}] Local SM file last modified: {local_mtime}")
+        logging.info(f"[{simfileid} - {simfile_name}] Remote SM file last updated: {last_updated_dt}")
         if local_mtime >= last_updated_dt:
-            logging.info("Local SM file is up to date.")
+            logging.info(f"[{simfileid} - {simfile_name}] Local SM file is up to date.")
             return
         else:
-            logging.info("Local SM file is outdated. Downloading new zip...")
+            logging.info(f"[{simfileid} - {simfile_name}] Local SM file is outdated. Downloading new zip...")
             clean_simfiles_dir()
     else:
-        logging.info("No local SM file found. Downloading zip...")
+        logging.info(f"[{simfileid} - {simfile_name}] No local SM file found. Downloading zip...")
         clean_simfiles_dir()
 
     try:
         zip_resp = requests.get(zip_link, timeout=30)
         zip_resp.raise_for_status()
         extract_zip_to_dir(zip_resp.content, SIMFILES_DIR)
-        logging.info(f"Downloaded and extracted to {SIMFILES_DIR}/")
+        logging.info(f"[{simfileid} - {simfile_name}] Downloaded and extracted to {SIMFILES_DIR}/")
     except Exception as e:
-        logging.error(f"Error downloading or extracting zip: {e}")
+        logging.error(f"[{simfileid} - {simfile_name}] Error downloading or extracting zip: {e}")
 
 if __name__ == "__main__":
     main()
