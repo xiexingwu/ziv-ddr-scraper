@@ -1,6 +1,5 @@
 import math
 import os
-from os.path import exists
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
@@ -10,28 +9,57 @@ import logging
 import re
 
 BASE_URL = 'https://zenius-i-vanisher.com/v5.2/'
-WORLD_URL = BASE_URL + 'viewsimfilecategory.php?categoryid=1709'
 BASE_SIMFILES_DIR = 'simfiles/'
-SIMFILES_DIR = BASE_SIMFILES_DIR + 'DDR WORLD/'
+VER_ID_NAME_PAIRS = [
+    (1709, "WORLD"),
+    (1509, "A3"),
+    (1293, "A20 PLUS"),
+    (1292, "A20"),
+    (1148, "A"),
+    (864, "2014"),
+    (845, "2013"),
+    (802, "X3"),
+    (546, "X2"),
+    (295, "X"),
+    (77, "SuperNOVA2"),
+    (1, "SuperNOVA"),
+    (41, "EXTREME"),
+    (31, "MAX2"),
+    (40, "MAX"),
+    (30, "5th"),
+    (39, "4th"),
+    (38, "3rd"),
+    (32, "2nd"),
+    (37, "1st")
+]
 
+os.remove("logs.log")
 logging.basicConfig(level=logging.INFO, format='%(message)s')
+file_handler = logging.FileHandler("logs.log")
+logging.getLogger().addHandler(file_handler)
 
 def parse_relative_date(text):
-    match = re.match(r'([\d.]+)\s(years?|months?|weeks?|days?)\sago', text)
+    match = re.match(r'([\d.]+)\s(years?|months?|weeks?|days?|hours?|minutes?|seconds?)\sago', text)
     if not match:
         return None
 
     value, unit = float(match.group(1)), match.group(2)
     if 'year' in unit:
-        days = math.ceil(value * 366)
+        delta = timedelta(days=math.ceil(value * 366))
     elif 'month' in unit:
-        days = math.ceil(value * 31)
+        delta = timedelta(days=math.ceil(value * 31))
     elif 'week' in unit:
-        days = math.ceil(value * 7)
+        delta = timedelta(days=math.ceil(value * 7))
     elif 'day' in unit:
-        days = math.ceil(value)
+        delta = timedelta(days=value)
+    elif 'hour' in unit:
+        delta = timedelta(hours=value)
+    elif 'minute' in unit:
+        delta = timedelta(minutes=value)
+    elif 'second' in unit:
+        delta = timedelta(seconds=value)
 
-    return datetime.now() - timedelta(days=days)
+    return datetime.now() - delta
 
 ## PARSING FUNCTIONS
 def get_simfile_name(soup):
@@ -77,7 +105,7 @@ def get_last_updated_from_category(soup):
                 if last_updated_dt:
                     break
             if not last_updated_dt:
-                raise Exception(f"Failed to find a date fo simfile_id {simfile_id} ({simfile_name})")
+                raise Exception(f"Failed to find a date for simfile_id [{simfile_id} - {simfile_name}]:\n{row}")
 
             simfile_info.append({
                 'simfile_id': simfile_id, 
@@ -91,18 +119,24 @@ def extract_zip_to_dir(zip_bytes, target_dir):
     with zipfile.ZipFile(BytesIO(zip_bytes)) as z:
         z.extractall(target_dir)
 
-def mkdir_simfiles_dir():
-    os.makedirs(SIMFILES_DIR, exist_ok=True)
+def mkdir_simfiles_dir(simfile_dir):
+    os.makedirs(simfile_dir, exist_ok=True)
 
-def find_sm_file(directory, simfile_name):
+def find_simfile(directory, simfile_name):
     # Look for {simfile_name}.sm in each subdirectory of directory
     base_name = directory + f"{simfile_name}/{simfile_name}"
-    if os.path.exists(base_name+".sm"):
-        return base_name+".sm"
-    if os.path.exists(base_name+".ssc"):
-        return base_name+".ssc"
+    sm_file= base_name + ".sm"
+    ssc_file = base_name + ".ssc"
+    if os.path.exists(sm_file) and os.path.exists(ssc_file):
+        logging.info(f"Found both SM and SSC files for {simfile_name} in {directory}. Removing SM file.")
+        os.remove(sm_file)
+        return ssc_file
+    elif os.path.exists(sm_file):
+        return sm_file
+    elif os.path.exists(ssc_file):
+        return ssc_file
 
-def scrape_simfile(simfile_id):
+def scrape_simfile(simfiles_dir, simfile_id):
     simfile_url = BASE_URL + f'viewsimfile.php?simfileid={simfile_id}'
     try:
         resp = requests.get(simfile_url, timeout=30)
@@ -115,16 +149,19 @@ def scrape_simfile(simfile_id):
         logging.error(f"Error scraping page: {e}")
         return
 
-    mkdir_simfiles_dir()
     try:
         zip_resp = requests.get(zip_link, timeout=30)
         zip_resp.raise_for_status()
-        extract_zip_to_dir(zip_resp.content, SIMFILES_DIR)
-        logging.info(f"[{simfile_id} - {simfile_name}] Downloaded and extracted to {SIMFILES_DIR}")
+        extract_zip_to_dir(zip_resp.content, simfiles_dir)
+        logging.info(f"[{simfile_id} - {simfile_name}] Downloaded and extracted to {simfiles_dir}")
     except Exception as e:
         logging.error(f"[{simfile_id} - {simfile_name}] Error downloading or extracting zip: {e}")
 
-def scrape_category(version_url):
+def scrape_category(version_id, version_name):
+    simfiles_dir = BASE_SIMFILES_DIR + f"DDR {version_name}/"
+    mkdir_simfiles_dir(simfiles_dir)
+    version_url = BASE_URL + f'viewsimfilecategory.php?categoryid={version_id}'
+
     resp = requests.get(version_url, timeout=30)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, 'html.parser')
@@ -134,7 +171,7 @@ def scrape_category(version_url):
         simfile_name = simfile['simfile_name']
         last_updated_dt = simfile['last_updated_dt']
 
-        sm_file = find_sm_file(SIMFILES_DIR, simfile_name)
+        sm_file = find_simfile(simfiles_dir, simfile_name)
         if sm_file:
             local_mtime = datetime.fromtimestamp(os.path.getmtime(sm_file))
             logging.info(f"[{simfile_id} - {simfile_name}] Local SM file last modified: {local_mtime}")
@@ -146,7 +183,8 @@ def scrape_category(version_url):
                 logging.info(f"[{simfile_id} - {simfile_name}] Local SM file is outdated. Downloading new zip...")
         else:
             logging.info(f"[{simfile_id} - {simfile_name}] No local SM file found. Downloading zip...")
-        # scrape_simfile(simfile_id)
+        scrape_simfile(simfiles_dir, simfile_id)
 
 if __name__ == "__main__":
-    scrape_category(WORLD_URL)
+    for version_id, version_name in VER_ID_NAME_PAIRS:
+        scrape_category(version_id, version_name)
