@@ -1,4 +1,5 @@
 import math
+import sys
 import os
 import requests
 from bs4 import BeautifulSoup
@@ -70,6 +71,17 @@ def get_simfile_name(soup):
             return links[-1].text.strip()
     raise Exception("Couldn't find simfile name in the page.")
 
+def get_simfile_version(soup):
+    full_version_text = soup.find('div', id='top-nav').find_all('a')[-2].text.strip()
+    pattern = '|'.join(f'{name}' for _, name in VER_ID_NAME_PAIRS)
+    pattern = f'({pattern})'
+    match = re.search(pattern, full_version_text)
+    if match:
+        simfile_ver = match.group(1)
+        return simfile_ver
+    else:
+        logging.info(f"Failed to find simfile version in text: {full_version_text}")
+
 def get_zip_link(soup):
     for a in soup.find_all('a', href=True):
         if a.text.strip() == 'ZIP':
@@ -136,7 +148,7 @@ def find_simfile(directory, simfile_name):
     elif os.path.exists(ssc_file):
         return ssc_file
 
-def scrape_simfile(simfiles_dir, simfile_id):
+def scrape_simfile(simfile_id, simfiles_dir = None):
     simfile_url = BASE_URL + f'viewsimfile.php?simfileid={simfile_id}'
     try:
         resp = requests.get(simfile_url, timeout=30)
@@ -145,6 +157,11 @@ def scrape_simfile(simfiles_dir, simfile_id):
         soup = BeautifulSoup(html, 'html.parser')
         simfile_name = get_simfile_name(soup)
         zip_link = get_zip_link(soup)
+        logging.info(f"[{simfile_id} - {simfile_name}] Found zip link: {zip_link}")
+        if not simfiles_dir:
+            simfile_ver = get_simfile_version(soup)
+            logging.info(f"[{simfile_id} - {simfile_name}] Found simfile version: {simfile_ver}")
+            simfiles_dir = BASE_SIMFILES_DIR + f"DDR {simfile_ver}/"
     except Exception as e:
         logging.error(f"Error scraping page: {e}")
         return
@@ -183,8 +200,12 @@ def scrape_category(version_id, version_name):
                 logging.info(f"[{simfile_id} - {simfile_name}] Local SM file is outdated. Downloading new zip...")
         else:
             logging.info(f"[{simfile_id} - {simfile_name}] No local SM file found. Downloading zip...")
-        scrape_simfile(simfiles_dir, simfile_id)
+        scrape_simfile(simfile_id, simfiles_dir)
 
 if __name__ == "__main__":
-    for version_id, version_name in VER_ID_NAME_PAIRS:
-        scrape_category(version_id, version_name)
+    if len(sys.argv) >= 2:
+        for simfile_id in sys.argv[1:]:
+            scrape_simfile(simfile_id)
+    else:
+        for version_id, version_name in VER_ID_NAME_PAIRS:
+            scrape_category(version_id, version_name)
