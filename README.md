@@ -22,10 +22,10 @@ So you should have a directory structure like this:
 ```
 simfiles
 ├── 'DDR 1st'
-  ├── Butterfly
-  ├── ...
-  └── 'TRIP MACHINE'
-    └── 'TRIP MACHINE.sm'
+│ ├── Butterfly
+│ ├── ...
+│ └── 'TRIP MACHINE'
+│   └── 'TRIP MACHINE.sm'
 ├── 'DDR 2nd'
 ├── 'DDR 3rd'
 ├── 'DDR 4th'
