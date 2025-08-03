@@ -34,7 +34,10 @@ VER_ID_NAME_PAIRS = [
     (37, "1st")
 ]
 
-os.remove("logs.log")
+try:
+    os.remove("logs.log")
+except:
+    pass
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 file_handler = logging.FileHandler("logs.log")
 logging.getLogger().addHandler(file_handler)
